@@ -6,13 +6,13 @@ on:
       upstream_branch:
         description: 'Official Godot branch'
         required: true
-        default: '4.7'
+        default: 'master'
         type: string
 
       target_branch:
         description: 'Your custom branch'
         required: true
-        default: 'precise-4.7'
+        default: 'precise-master'
         type: string
 
 jobs:

@@ -1,4 +1,4 @@
-name: Build Custom Godot
+name: Build Custom Precise Godot
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       godot_branch:
         description: 'Custom Godot branch to build (e.g. precise-4.7)'
         required: true
-        default: 'precise-4.7'
+        default: 'precise-default'
         type: string
 
       platform:
@@ -76,11 +76,33 @@ jobs:
           New-Item -ItemType Directory -Force -Path nuget-local
           dotnet nuget add source "$PWD/nuget-local" --name GodotLocal
 
+      - name: Install Direct3D 12 SDK
+        id: d3d12-sdk
+        shell: bash
+        run: |
+          if python ./misc/scripts/install_d3d12_sdk_windows.py; then
+            echo "enabled=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::D3D12 installation failed. Building without D3D12."
+            echo "enabled=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install AccessKit
+        id: accesskit-sdk
+        shell: bash
+        run: |
+          if python ./misc/scripts/install_accesskit.py; then
+            echo "enabled=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::AccessKit installation failed. Building without AccessKit."
+            echo "enabled=no" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build Godot Editor
         shell: pwsh
         run: |
           $cpuCount = [Environment]::ProcessorCount
-          scons platform=windows target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no "-j$cpuCount"
+          scons platform=windows target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} "-j$cpuCount"
 
       - name: Generate C# Glue
         shell: pwsh
@@ -100,20 +122,22 @@ jobs:
         shell: pwsh
         run: |
           $cpuCount = [Environment]::ProcessorCount
-          scons platform=windows target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no "-j$cpuCount"
+          scons platform=windows target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} "-j$cpuCount"
 
       - name: Build Debug Export Template
         if: inputs.include_debug
         shell: pwsh
         run: |
           $cpuCount = [Environment]::ProcessorCount
-          scons platform=windows target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no "-j$cpuCount"
+          scons platform=windows target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} "-j$cpuCount"
 
       - name: Upload Windows Build
         uses: actions/upload-artifact@v4
         with:
           name: godot-${{ inputs.godot_branch }}-windows
-          path: bin/
+          path: |
+            bin/
+            nuget-local/
           if-no-files-found: error
           retention-days: 30
 
@@ -209,6 +233,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: godot-${{ inputs.godot_branch }}-linux
-          path: bin/
+          path: |
+            bin/
+            nuget-local/
           if-no-files-found: error
           retention-days: 30
