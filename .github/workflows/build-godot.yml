@@ -1,4 +1,4 @@
-name: Build Custom Precise Godot
+name: Build Custom Godot
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       godot_branch:
         description: 'Custom Godot branch to build (e.g. precise-4.7)'
         required: true
-        default: 'precise-default'
+        default: 'precise-4.7'
         type: string
 
       platform:
@@ -157,7 +157,7 @@ jobs:
             bin/
             nuget-local/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   # ==========================================
   # LINUX BUILD
@@ -255,4 +255,4 @@ jobs:
             bin/
             nuget-local/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90

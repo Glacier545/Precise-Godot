@@ -22,7 +22,7 @@ I made this mainly to offload Godot's lengthy compilation process from my own PC
 4. Select your custom branch and target platform.
 5. Download the build from GitHub Actions artifacts.
 
-##
+---
 
 Godot source branches are created on demand. No local compilation required.
 

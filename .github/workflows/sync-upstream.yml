@@ -6,13 +6,13 @@ on:
       upstream_branch:
         description: 'Official Godot branch'
         required: true
-        default: 'master'
+        default: '4.7'
         type: string
 
       target_branch:
         description: 'Your custom branch'
         required: true
-        default: 'precise-master'
+        default: 'precise-4.7'
         type: string
 
 jobs:
@@ -40,8 +40,8 @@ jobs:
 
       - name: Sync Selected Version
         env:
-          UPSTREAM_BRANCH: ${{ inputs.upstream_branch || '4.7' }}
-          TARGET_BRANCH: ${{ inputs.target_branch || 'precise-4.7' }}
+          UPSTREAM_BRANCH: ${{ inputs.upstream_branch }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
         run: |
           git show-ref --verify --quiet \
             "refs/remotes/upstream/$UPSTREAM_BRANCH" || {
