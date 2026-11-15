@@ -78,25 +78,43 @@ jobs:
 
       - name: Install Direct3D 12 SDK
         id: d3d12-sdk
-        shell: bash
+        shell: pwsh
         run: |
-          if python ./misc/scripts/install_d3d12_sdk_windows.py; then
-            echo "enabled=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::D3D12 installation failed. Building without D3D12."
-            echo "enabled=no" >> "$GITHUB_OUTPUT"
-          fi
+          python -u ./misc/scripts/install_d3d12_sdk_windows.py
+
+          if ($LASTEXITCODE -eq 0) {
+            "enabled=yes" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Warning "D3D12 installation failed. Building without D3D12."
+            "enabled=no" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Install AccessKit
         id: accesskit-sdk
-        shell: bash
+        shell: pwsh
         run: |
-          if python ./misc/scripts/install_accesskit.py; then
-            echo "enabled=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::AccessKit installation failed. Building without AccessKit."
-            echo "enabled=no" >> "$GITHUB_OUTPUT"
-          fi
+          python -u ./misc/scripts/install_accesskit.py
+
+          if ($LASTEXITCODE -eq 0) {
+            "enabled=yes" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Warning "AccessKit installation failed. Building without AccessKit."
+            "enabled=no" >> $env:GITHUB_OUTPUT
+          }
+
+      # BUILD DIAGNOSTICS
+      - name: Diagnose Godot Build Dependencies
+        shell: pwsh
+        run: |
+          Write-Host "LOCALAPPDATA: $env:LOCALAPPDATA"
+          Write-Host "MSYSTEM: $env:MSYSTEM"
+
+          Write-Host "`nChecking LOCALAPPDATA dependencies:"
+          Get-ChildItem "$env:LOCALAPPDATA/Godot/build_deps" -Force -ErrorAction SilentlyContinue
+
+          Write-Host "`nChecking repository dependencies:"
+          Get-ChildItem "bin/build_deps" -Force -ErrorAction SilentlyContinue
+      # END OF BUILD DIAGNOSTICS
 
       - name: Build Godot Editor
         shell: pwsh
