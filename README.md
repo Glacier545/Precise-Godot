@@ -1,7 +1,6 @@
-
 # Precise Godot
 
-A GitHub Actions build pipeline for my double-precision C# Godot builds straight from source.
+GitHub Actions pipeline that builds double-precision, C#-enabled Godot 4 from source.
 
 I made this mainly to offload Godot's lengthy compilation process from my own PC and let GitHub Actions handle the heavy lifting.
 
@@ -10,21 +9,34 @@ I made this mainly to offload Godot's lengthy compilation process from my own PC
 - Double precision (`f64`)
 - C# support
 - Jolt Physics
-- Windows and Linux builds
-- On-demand upstream syncing
-- Includes Release and optional Debug export templates
+- Windows, Linux (x86_64)
+- Production build, no debug symbols
+- Includes Release export template, optional Debug
+- Build caching between runs
+- On-demand upstream sync
+
+## Notes
+
+- **Godot 4.x only** — 3.x has no `precision` scons option.
+- The .NET SDK must match the branch (4.7 → `8.0.x`).
+- Double builds say so in the filename: `godot.windows.editor.x86_64.double.mono.exe`. Glob for it, don't hardcode.
+- Optional Windows deps (D3D12, AccessKit, ANGLE) are skipped quietly if their install fails.
+- Linux uses `lto=none`; `production=yes` would otherwise enable full LTO under GCC.
+- The sync workflow pushes with the `SYNC_TOKEN` secret — a **fine-grained PAT** with contents write access. The default `GITHUB_TOKEN` didn't work here, and without the secret the job fails at checkout. Building doesn't need it.
 
 ## Usage
 
-1. Run **Sync with Official Godot Repo**.
-2. Select the upstream and target branches.
-3. Run **Build Custom Godot**.
-4. Select your custom branch and target platform.
-5. Download the build from GitHub Actions artifacts.
+1. Run **Sync with Official Godot Repo** → pick upstream and target branch.
+2. Run **Build Custom Godot** → pick branch and platform.
+3. Download `godot-<branch>-<platform>` from the artifacts.
+
+Artifacts hold the binaries, `GodotSharp/`, and the `.nupkg` files. For C# projects use those nupkgs — the official ones are single precision. Addons built for single precision won't load either.
+
+Cold build is ~2–3 h, cached repeats are much faster.
 
 ---
 
-Godot source branches are created on demand. No local compilation required.
+Custom build branches are created on demand. No local compilation required.
 
 ## Links
 

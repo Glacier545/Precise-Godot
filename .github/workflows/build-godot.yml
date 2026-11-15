@@ -54,6 +54,16 @@ jobs:
         with:
           ref: ${{ inputs.godot_branch }}
           fetch-depth: 1
+    
+      - name: Restore SCons Cache
+        id: scons-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .scons_cache
+          key: scons-${{ runner.os }}-${{ inputs.godot_branch }}-${{ github.run_id }}
+          restore-keys: |
+            scons-${{ runner.os }}-${{ inputs.godot_branch }}-
+            scons-${{ runner.os }}-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -82,12 +92,10 @@ jobs:
         run: |
           python -u ./misc/scripts/install_d3d12_sdk_windows.py
 
-          if ($LASTEXITCODE -eq 0) {
-            "enabled=yes" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Warning "D3D12 installation failed. Building without D3D12."
-            "enabled=no" >> $env:GITHUB_OUTPUT
-          }
+          $ok = ($LASTEXITCODE -eq 0)
+          if (-not $ok) { Write-Warning "D3D12 installation failed. Building without D3D12." }
+          "enabled=$(if ($ok) { 'yes' } else { 'no' })" >> $env:GITHUB_OUTPUT
+          exit 0
 
       - name: Install AccessKit
         id: accesskit-sdk
@@ -95,12 +103,21 @@ jobs:
         run: |
           python -u ./misc/scripts/install_accesskit.py
 
-          if ($LASTEXITCODE -eq 0) {
-            "enabled=yes" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Warning "AccessKit installation failed. Building without AccessKit."
-            "enabled=no" >> $env:GITHUB_OUTPUT
-          }
+          $ok = ($LASTEXITCODE -eq 0)
+          if (-not $ok) { Write-Warning "AccessKit installation failed. Building without AccessKit." }
+          "enabled=$(if ($ok) { 'yes' } else { 'no' })" >> $env:GITHUB_OUTPUT
+          exit 0
+      
+      - name: Install ANGLE
+        id: angle-sdk
+        shell: pwsh
+        run: |
+          python -u ./misc/scripts/install_angle.py
+
+          $ok = ($LASTEXITCODE -eq 0)
+          if (-not $ok) { Write-Warning "ANGLE installation failed. Building without ANGLE." }
+          "enabled=$(if ($ok) { 'yes' } else { 'no' })" >> $env:GITHUB_OUTPUT
+          exit 0
 
       # BUILD DIAGNOSTICS
       - name: Diagnose Godot Build Dependencies
@@ -120,12 +137,23 @@ jobs:
         shell: pwsh
         run: |
           $cpuCount = [Environment]::ProcessorCount
-          scons platform=windows target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} "-j$cpuCount"
+          scons platform=windows target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} angle=${{ steps.angle-sdk.outputs.enabled }} cache_path=.scons_cache cache_limit=10 "-j$cpuCount"
 
       - name: Generate C# Glue
         shell: pwsh
         run: |
-          ./bin/godot.windows.editor.x86_64.mono.exe --headless --generate-mono-glue modules/mono/glue
+          $godot = Get-ChildItem -Path bin -Filter 'godot.*.editor.*.mono.exe' |
+            Where-Object { $_.Name -notlike '*.console.exe' } |
+            Select-Object -First 1
+
+          if (-not $godot) {
+            Write-Host 'bin/ contents:'
+            Get-ChildItem bin -Force | Select-Object Name, Length
+            throw 'Godot editor binary (mono) not found in bin/'
+          }
+
+          Write-Host "Using: $($godot.FullName)"
+          & $godot.FullName --headless --generate-mono-glue modules/mono/glue
 
       - name: Build C# Assemblies
         shell: pwsh
@@ -140,22 +168,30 @@ jobs:
         shell: pwsh
         run: |
           $cpuCount = [Environment]::ProcessorCount
-          scons platform=windows target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} "-j$cpuCount"
+          scons platform=windows target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} angle=${{ steps.angle-sdk.outputs.enabled }} cache_path=.scons_cache cache_limit=10 "-j$cpuCount"
 
       - name: Build Debug Export Template
         if: inputs.include_debug
         shell: pwsh
         run: |
           $cpuCount = [Environment]::ProcessorCount
-          scons platform=windows target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} "-j$cpuCount"
+          scons platform=windows target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no d3d12=${{ steps.d3d12-sdk.outputs.enabled }} accesskit=${{ steps.accesskit-sdk.outputs.enabled }} angle=${{ steps.angle-sdk.outputs.enabled }} cache_path=.scons_cache cache_limit=10 "-j$cpuCount"
+
+      - name: Save SCons Cache
+        if: always() && steps.scons-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .scons_cache
+          key: ${{ steps.scons-cache.outputs.cache-primary-key }}
 
       - name: Upload Windows Build
         uses: actions/upload-artifact@v4
         with:
           name: godot-${{ inputs.godot_branch }}-windows
           path: |
-            bin/
-            nuget-local/
+            bin/godot.*
+            bin/GodotSharp/**
+            nuget-local/*.nupkg
           if-no-files-found: error
           retention-days: 90
 
@@ -174,6 +210,16 @@ jobs:
         with:
           ref: ${{ inputs.godot_branch }}
           fetch-depth: 1
+    
+      - name: Restore SCons Cache
+        id: scons-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .scons_cache
+          key: scons-${{ runner.os }}-${{ inputs.godot_branch }}-${{ github.run_id }}
+          restore-keys: |
+            scons-${{ runner.os }}-${{ inputs.godot_branch }}-
+            scons-${{ runner.os }}-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -209,8 +255,7 @@ jobs:
             libwayland-dev \
             libdecor-0-dev \
             libdbus-1-dev \
-            libvulkan-dev \
-            mono-devel
+            libvulkan-dev
 
       - name: Install SCons
         run: |
@@ -222,13 +267,25 @@ jobs:
           mkdir -p nuget-local
           dotnet nuget add source "$PWD/nuget-local" --name GodotLocal
 
+      - name: Install AccessKit
+        id: accesskit-sdk
+        run: |
+          if python3 -u ./misc/scripts/install_accesskit.py; then
+            echo "enabled=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=no" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build Godot Editor
         run: |
-          scons platform=linuxbsd target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no -j"$(nproc)"
+          scons platform=linuxbsd target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no accesskit=${{ steps.accesskit-sdk.outputs.enabled }} lto=none cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
 
       - name: Generate C# Glue
         run: |
-          ./bin/godot.linuxbsd.editor.x86_64.mono --headless --generate-mono-glue modules/mono/glue
+          GODOT_BIN=$(find bin -maxdepth 1 -type f -name 'godot.*.editor.*.mono' | head -n 1)
+          [ -n "$GODOT_BIN" ] || { echo "Not found; bin/ contains:"; ls -la bin; exit 1; }
+          echo "Using: $GODOT_BIN"
+          "$GODOT_BIN" --headless --generate-mono-glue modules/mono/glue
 
       - name: Build C# Assemblies
         run: |
@@ -240,19 +297,27 @@ jobs:
 
       - name: Build Release Export Template
         run: |
-          scons platform=linuxbsd target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no -j"$(nproc)" 
+          scons platform=linuxbsd target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no accesskit=${{ steps.accesskit-sdk.outputs.enabled }} lto=none cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
 
       - name: Build Debug Export Template
         if: inputs.include_debug
         run: |
-          scons platform=linuxbsd target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no -j"$(nproc)" 
+          scons platform=linuxbsd target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no accesskit=${{ steps.accesskit-sdk.outputs.enabled }} lto=none cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+      
+      - name: Save SCons Cache
+        if: always() && steps.scons-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .scons_cache
+          key: ${{ steps.scons-cache.outputs.cache-primary-key }}
 
       - name: Upload Linux Build
         uses: actions/upload-artifact@v4
         with:
           name: godot-${{ inputs.godot_branch }}-linux
           path: |
-            bin/
-            nuget-local/
+            bin/godot.*
+            bin/GodotSharp/**
+            nuget-local/*.nupkg
           if-no-files-found: error
           retention-days: 90
