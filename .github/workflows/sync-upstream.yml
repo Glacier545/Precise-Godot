@@ -1,0 +1,58 @@
+name: Sync with Official Godot Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_branch:
+        description: 'Official Godot branch'
+        required: true
+        default: '4.7'
+        type: string
+
+      target_branch:
+        description: 'Your custom branch'
+        required: true
+        default: 'precise-4.7'
+        type: string
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch Upstream
+        run: |
+          git remote add upstream https://github.com/godotengine/godot.git
+          git fetch upstream '+refs/heads/*:refs/remotes/upstream/*'
+
+      - name: Sync Selected Version
+        env:
+          UPSTREAM_BRANCH: ${{ inputs.upstream_branch || '4.7' }}
+          TARGET_BRANCH: ${{ inputs.target_branch || 'precise-4.7' }}
+        run: |
+          git show-ref --verify --quiet \
+            "refs/remotes/upstream/$UPSTREAM_BRANCH" || {
+              echo "Invalid upstream branch"
+              exit 1
+            }
+
+          if git show-ref --verify --quiet "refs/heads/$TARGET_BRANCH"; then
+            git checkout "$TARGET_BRANCH"
+          else
+            git checkout -b "$TARGET_BRANCH" "upstream/$UPSTREAM_BRANCH"
+          fi
+
+          git merge "upstream/$UPSTREAM_BRANCH" --no-edit
+          git push origin "$TARGET_BRANCH"

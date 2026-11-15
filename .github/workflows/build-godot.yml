@@ -1,0 +1,214 @@
+name: Build Custom Godot
+
+on:
+  workflow_dispatch:
+    inputs:
+      godot_branch:
+        description: 'Custom Godot branch to build (e.g. precise-4.7)'
+        required: true
+        default: 'precise-4.7'
+        type: string
+
+      platform:
+        description: 'Target platform'
+        required: true
+        default: 'windows'
+        type: choice
+        options:
+          - windows
+          - linux
+
+      dotnet_sdk:
+        description: '.NET SDK version required by this Godot branch'
+        required: true
+        default: '8.0.x'
+        type: string
+
+      include_debug:
+        description: 'Build Debug Export Template?'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: godot-build-${{ inputs.godot_branch }}-${{ inputs.platform }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ==========================================
+  # WINDOWS BUILD
+  # ==========================================
+
+  build-windows:
+    if: inputs.platform == 'windows'
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Custom Godot Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.godot_branch }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_sdk }}
+
+      - name: Install SCons
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install scons
+
+      - name: Create Local NuGet Source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path nuget-local
+          dotnet nuget add source "$PWD/nuget-local" --name GodotLocal
+
+      - name: Build Godot Editor
+        shell: pwsh
+        run: |
+          $cpuCount = [Environment]::ProcessorCount
+          scons platform=windows target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no "-j$cpuCount"
+
+      - name: Generate C# Glue
+        shell: pwsh
+        run: |
+          ./bin/godot.windows.editor.x86_64.mono.exe --headless --generate-mono-glue modules/mono/glue
+
+      - name: Build C# Assemblies
+        shell: pwsh
+        run: |
+          python modules/mono/build_scripts/build_assemblies.py `
+            --godot-output-dir=bin `
+            --push-nupkgs-local=nuget-local `
+            --godot-platform=windows `
+            --precision=double
+
+      - name: Build Release Export Template
+        shell: pwsh
+        run: |
+          $cpuCount = [Environment]::ProcessorCount
+          scons platform=windows target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no "-j$cpuCount"
+
+      - name: Build Debug Export Template
+        if: inputs.include_debug
+        shell: pwsh
+        run: |
+          $cpuCount = [Environment]::ProcessorCount
+          scons platform=windows target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no "-j$cpuCount"
+
+      - name: Upload Windows Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-${{ inputs.godot_branch }}-windows
+          path: bin/
+          if-no-files-found: error
+          retention-days: 30
+
+  # ==========================================
+  # LINUX BUILD
+  # ==========================================
+
+  build-linux:
+    if: inputs.platform == 'linux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Custom Godot Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.godot_branch }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_sdk }}
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxfixes-dev \
+            libxkbcommon-dev \
+            libfontconfig1-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libwayland-dev \
+            libdecor-0-dev \
+            libdbus-1-dev \
+            libvulkan-dev \
+            mono-devel
+
+      - name: Install SCons
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install scons
+
+      - name: Create Local NuGet Source
+        run: |
+          mkdir -p nuget-local
+          dotnet nuget add source "$PWD/nuget-local" --name GodotLocal
+
+      - name: Build Godot Editor
+        run: |
+          scons platform=linuxbsd target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no -j"$(nproc)"
+
+      - name: Generate C# Glue
+        run: |
+          ./bin/godot.linuxbsd.editor.x86_64.mono --headless --generate-mono-glue modules/mono/glue
+
+      - name: Build C# Assemblies
+        run: |
+          python3 modules/mono/build_scripts/build_assemblies.py \
+            --godot-output-dir=bin \
+            --push-nupkgs-local=nuget-local \
+            --godot-platform=linuxbsd \
+            --precision=double
+
+      - name: Build Release Export Template
+        run: |
+          scons platform=linuxbsd target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no -j"$(nproc)" 
+
+      - name: Build Debug Export Template
+        if: inputs.include_debug
+        run: |
+          scons platform=linuxbsd target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_enabled=yes production=yes debug_symbols=no -j"$(nproc)" 
+
+      - name: Upload Linux Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-${{ inputs.godot_branch }}-linux
+          path: bin/
+          if-no-files-found: error
+          retention-days: 30
