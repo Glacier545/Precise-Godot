@@ -32,7 +32,7 @@ I made this mainly to offload Godot's lengthy compilation process from my own PC
 
 Artifacts hold the binaries, `GodotSharp/`, and the `.nupkg` files. For C# projects use those nupkgs — the official ones are single precision. Addons built for single precision won't load either.
 
-Cold build is ~2–3 h, cached repeats are much faster.
+Cold builds take significantly longer, cached repeats are much faster.
 
 ---
 
