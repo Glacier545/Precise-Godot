@@ -1,6 +1,6 @@
 # Precise Godot
 
-GitHub Actions pipeline that builds double-precision, C#-enabled Godot 4 from source.
+GitHub Actions pipeline that builds double-precision, C#-enabled Godot 4.4+ versions from source.
 
 I made this mainly to offload Godot's lengthy compilation process from my own PC and let GitHub Actions handle the heavy lifting.
 
@@ -8,7 +8,7 @@ I made this mainly to offload Godot's lengthy compilation process from my own PC
 
 - Double precision (`f64`)
 - C# support
-- Jolt Physics
+- Jolt Physics (built-in on Godot 4.4+)
 - Windows, Linux (x86_64)
 - Production build, no debug symbols
 - Includes Release export template, optional Debug
@@ -17,7 +17,8 @@ I made this mainly to offload Godot's lengthy compilation process from my own PC
 
 ## Notes
 
-- **Godot 4.x only** — 3.x has no `precision` scons option.
+- **Godot 4.4+ recommended** — 3.x has no `precision` scons option. For 4.0–4.3 builds, add the [Godot Jolt GDExtension](https://github.com/godot-jolt/godot-jolt) to your project's `addons/` folder separately.
+- **Jolt Physics** is built directly into Godot 4.4+ by default.
 - The .NET SDK must match the branch (4.7 → `8.0.x`).
 - Double builds say so in the filename: `godot.windows.editor.x86_64.double.mono.exe`. Glob for it, don't hardcode.
 - Optional Windows deps (D3D12, AccessKit, ANGLE) are skipped quietly if their install fails.
