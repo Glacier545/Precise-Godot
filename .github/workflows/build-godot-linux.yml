@@ -1,0 +1,157 @@
+name: Build Custom Godot (Linux)
+
+on:
+  workflow_dispatch:
+    inputs:
+      godot_branch:
+        description: 'Custom Godot branch to build (e.g. precise-4.7)'
+        required: true
+        default: 'precise-4.7'
+        type: string
+
+      dotnet_sdk:
+        description: '.NET SDK version required by this Godot branch'
+        required: true
+        default: '8.0.x'
+        type: string
+
+      include_debug:
+        description: 'Build Debug Export Template?'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: godot-build-linux-${{ inputs.godot_branch }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ==========================================
+  # LINUX BUILD
+  # ==========================================
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Custom Godot Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.godot_branch }}
+          fetch-depth: 1
+
+      - name: Restore SCons Cache
+        id: scons-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .scons_cache
+          key: scons-${{ runner.os }}-${{ inputs.godot_branch }}-${{ github.run_id }}
+          restore-keys: |
+            scons-${{ runner.os }}-${{ inputs.godot_branch }}-
+            scons-${{ runner.os }}-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_sdk }}
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxfixes-dev \
+            libxkbcommon-dev \
+            libfontconfig1-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libwayland-dev \
+            libdecor-0-dev \
+            libdbus-1-dev \
+            libvulkan-dev
+
+      - name: Install SCons
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install scons
+
+      - name: Create Local NuGet Source
+        run: |
+          mkdir -p nuget-local
+          dotnet nuget add source "$PWD/nuget-local" --name GodotLocal
+
+      - name: Install AccessKit
+        id: accesskit-sdk
+        run: |
+          if python3 -u ./misc/scripts/install_accesskit.py; then
+            echo "enabled=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Godot Editor
+        run: |
+          scons platform=linuxbsd target=editor arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no accesskit=${{ steps.accesskit-sdk.outputs.enabled }} lto=none cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+
+      - name: Generate C# Glue
+        run: |
+          GODOT_BIN=$(find bin -maxdepth 1 -type f -name 'godot.*.editor.*.mono' | head -n 1)
+          [ -n "$GODOT_BIN" ] || { echo "Not found; bin/ contains:"; ls -la bin; exit 1; }
+          echo "Using: $GODOT_BIN"
+          "$GODOT_BIN" --headless --generate-mono-glue modules/mono/glue
+
+      - name: Build C# Assemblies
+        run: |
+          python3 modules/mono/build_scripts/build_assemblies.py \
+            --godot-output-dir=bin \
+            --push-nupkgs-local=nuget-local \
+            --godot-platform=linuxbsd \
+            --precision=double
+
+      - name: Build Release Export Template
+        run: |
+          scons platform=linuxbsd target=template_release arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no accesskit=${{ steps.accesskit-sdk.outputs.enabled }} lto=none cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+
+      - name: Build Debug Export Template
+        if: inputs.include_debug
+        run: |
+          scons platform=linuxbsd target=template_debug arch=x86_64 precision=double module_mono_enabled=yes module_jolt_physics_enabled=yes production=yes debug_symbols=no accesskit=${{ steps.accesskit-sdk.outputs.enabled }} lto=none cache_path=.scons_cache cache_limit=10 -j"$(nproc)"
+
+      - name: Save SCons Cache
+        if: always() && steps.scons-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .scons_cache
+          key: ${{ steps.scons-cache.outputs.cache-primary-key }}
+
+      - name: Upload Linux Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-${{ inputs.godot_branch }}-linux
+          path: |
+            bin/godot.*
+            bin/GodotSharp/**
+            nuget-local/*.nupkg
+          if-no-files-found: error
+          retention-days: 90
