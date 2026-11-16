@@ -35,10 +35,6 @@ Artifacts hold the binaries, `GodotSharp/`, and the `.nupkg` files. For C# proje
 
 Cold builds take significantly longer, cached repeats are much faster.
 
----
-
-Custom build branches are created on demand. No local compilation required.
-
 ## Links
 
 - [Godot Engine](https://github.com/godotengine/godot)
