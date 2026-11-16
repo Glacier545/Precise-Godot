@@ -180,6 +180,7 @@ jobs:
           name: godot-${{ inputs.godot_branch }}-windows
           path: |
             bin/godot.*
+            bin/*.dll
             bin/GodotSharp/**
             nuget-local/*.nupkg
           if-no-files-found: error
