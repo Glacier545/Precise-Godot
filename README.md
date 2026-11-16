@@ -22,7 +22,7 @@ I made this mainly to offload Godot's lengthy compilation process from my own PC
 - The .NET SDK must match the branch (4.7 → `8.0.x`).
 - Optional Windows deps (D3D12, AccessKit, ANGLE) are skipped quietly if their install fails.
 - Linux uses `lto=none`; `production=yes` would otherwise enable full LTO under GCC.
-- The sync workflow pushes with the `SYNC_TOKEN` secret — a **fine-grained PAT** with contents write access. The default `GITHUB_TOKEN` didn't work here, and without the secret the job fails at checkout. Building doesn't need it.
+- The sync workflow pushes with the `SYNC_TOKEN` secret — a **fine-grained PAT** with **Contents** and **Workflows** read/write access. Building doesn't need it. The token is passed explicitly to checkout, so a missing secret fails at checkout rather than falling back to `GITHUB_TOKEN`.
 
 ## Usage
 
